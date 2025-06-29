@@ -1,0 +1,145 @@
+name: Automatisch UI Tests
+on:
+  push:
+    branches:
+      - main
+  # pull_request:
+  #   paths:
+  #     - 'packages/backend/**'
+  #     - 'packages/e2e-tests/**'
+  #     - 'packages/web/**'
+  #     - '!packages/backend/src/apps/**'
+  workflow_dispatch:
+
+env:
+  ENCRYPTION_KEY: sample_encryption_key
+  WEBHOOK_SECRET_KEY: sample_webhook_secret_key
+  APP_SECRET_KEY: sample_app_secret_key
+  POSTGRES_HOST: localhost
+  POSTGRES_DATABASE: automatisch
+  POSTGRES_PORT: 5432
+  POSTGRES_USERNAME: automatisch_user
+  POSTGRES_PASSWORD: automatisch_password
+  REDIS_HOST: localhost
+  APP_ENV: production
+  LICENSE_KEY: dummy_license_key
+
+jobs:
+  test:
+    timeout-minutes: 60
+    runs-on:
+      - ubuntu-latest
+    services:
+      postgres:
+        image: postgres:14.5-alpine
+        env:
+          POSTGRES_DB: automatisch
+          POSTGRES_USER: automatisch_user
+          POSTGRES_PASSWORD: automatisch_password
+        options: >-
+          --health-cmd "pg_isready -U automatisch_user -d automatisch"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      redis:
+        image: redis:7.0.4-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+          cache: 'yarn'
+          cache-dependency-path: |
+            packages/backend/yarn.lock
+            packages/web/yarn.lock
+            packages/e2e-tests/yarn.lock
+      - name: Install backend dependencies
+        run: yarn --frozen-lockfile
+        working-directory: ./packages/backend
+      - name: Install web dependencies
+        run: yarn --frozen-lockfile
+        working-directory: ./packages/web
+      - name: Install e2e-tests dependencies
+        run: yarn --frozen-lockfile
+        working-directory: ./packages/e2e-tests
+      - name: Get installed Playwright version
+        id: playwright-version
+        run: echo "PLAYWRIGHT_VERSION=$(node -e "console.log(require('./package.json').devDependencies['@playwright/test'])")" >> $GITHUB_ENV
+        working-directory: ./packages/e2e-tests
+      - name: Cache playwright binaries
+        uses: actions/cache@v3
+        id: playwright-cache
+        with:
+          path: |
+            ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ env.PLAYWRIGHT_VERSION }}
+      - name: Install Playwright Browsers
+        run: yarn playwright install --with-deps
+        working-directory: ./packages/e2e-tests
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+      - name: Build Automatisch web
+        run: APP_ENV=test yarn build
+        env:
+          # Keep this until we clean up warnings in build processes
+          CI: false
+        working-directory: ./packages/web
+      - name: Migrate database
+        working-directory: ./packages/backend
+        run: yarn db:migrate
+      - name: Install certutils
+        run: sudo apt install -y libnss3-tools
+      - name: Install mkcert
+        run: |
+          curl -JLO "https://dl.filippo.io/mkcert/latest?for=linux/amd64" \
+          && chmod +x mkcert-v*-linux-amd64 \
+          && sudo cp mkcert-v*-linux-amd64 /usr/local/bin/mkcert
+      - name: Install root certificate via mkcert
+        run: mkcert -install
+      - name: Create certificate
+        run: mkcert automatisch.io "*.automatisch.io" localhost 127.0.0.1 ::1
+        working-directory: ./packages/e2e-tests
+      - name: Set CAROOT environment variable
+        run: echo "NODE_EXTRA_CA_CERTS=$(mkcert -CAROOT)/rootCA.pem" >> "$GITHUB_ENV"
+      - name: Override license server with local server
+        run: sudo echo "127.0.0.1 license.automatisch.io" | sudo tee -a /etc/hosts
+      - name: Run local license server
+        working-directory: ./packages/e2e-tests
+        run: sudo yarn start-mock-license-server &
+      - name: Run Automatisch
+        run: yarn start &
+        working-directory: ./packages/backend
+      - name: Run Automatisch worker
+        run: yarn start:worker &
+        working-directory: ./packages/backend
+      - name: Setup upterm session
+        if: false
+        uses: lhotari/action-upterm@v1
+        with:
+          limit-access-to-actor: true
+          limit-access-to-users: barinali
+      - name: Run Playwright tests
+        working-directory: ./packages/e2e-tests
+        env:
+          LOGIN_EMAIL: user@automatisch.io
+          LOGIN_PASSWORD: sample
+          BACKEND_APP_URL: http://localhost:3000
+          BASE_URL: http://localhost:3000
+          GITHUB_CLIENT_ID: 1c0417daf898adfbd99a
+          GITHUB_CLIENT_SECRET: 3328fa814dd582ccd03dbe785cfd683fb8da92b3
+        run: yarn test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: packages/e2e-tests/test-results
+          retention-days: 30

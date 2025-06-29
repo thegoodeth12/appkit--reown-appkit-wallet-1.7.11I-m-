@@ -1,0 +1,44 @@
+{
+  "name": "@automatisch/e2e-tests",
+  "version": "0.10.0",
+  "license": "See LICENSE file",
+  "private": true,
+  "description": "The open source Zapier alternative. Build workflow automation without spending time and money.",
+  "scripts": {
+    "start-mock-license-server": "node ./license-server-with-mock.js",
+    "test": "playwright test",
+    "test:fast": "yarn test -j 90% --quiet --reporter null --ignore-snapshots -x",
+    "lint": "eslint ."
+  },
+  "contributors": [
+    {
+      "name": "automatisch contributors",
+      "url": "https://github.com/automatisch/automatisch/graphs/contributors"
+    }
+  ],
+  "homepage": "https://github.com/automatisch/automatisch#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/automatisch/automatisch.git"
+  },
+  "bugs": {
+    "url": "https://github.com/automatisch/automatisch/issues"
+  },
+  "devDependencies": {
+    "@faker-js/faker": "^8.2.0",
+    "@playwright/test": "1.49.0",
+    "objection": "^3.1.5"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1",
+    "eslint": "^8.13.0",
+    "eslint-config-prettier": "^8.3.0",
+    "eslint-plugin-prettier": "^4.0.0",
+    "knex": "^2.4.0",
+    "luxon": "^3.4.4",
+    "micro": "^10.0.1",
+    "pg": "^8.12.0",
+    "prettier": "^2.5.1"
+  }
+}
